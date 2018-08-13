@@ -21,6 +21,7 @@ import (
 //	log.SetLevel(level)
 //	//	log.SetFormatter(&logfmt.TextFormat{})
 //}
+var getLinkCode = regexp.MustCompile(`href *= *('.*?'|".*?"|.*?;)`)
 
 func main() {
 	browser := chrome.New(
@@ -44,8 +45,7 @@ func main() {
 	}
 	defer browser.Close()
 
-	run(10*time.Second, "https://www.w3schools.com/jsref/prop_loc_href.asp")
-
+	run(10*time.Second, "https://www.w3schools.com/tags/tryit.asp?filename=tryhtml5_ev_onclick")
 }
 
 func run(timeout time.Duration, url string) error {
@@ -102,13 +102,7 @@ func run(timeout time.Duration, url string) error {
 		return err
 	}
 
-	// Wait until we have a DOMContentEventFired event.
-	if _, err = domContent.Recv(); err != nil {
-		return err
-	}
-
 	var wg sync.WaitGroup
-	var getLinkCode = regexp.MustCompile(`(.*)?(location\.href)((\((.*)\))|(.*\=(.*)))(.*)?`)
 	go func() {
 		for {
 			reply, err := ScriptParseClient.Recv()
@@ -122,16 +116,16 @@ func run(timeout time.Duration, url string) error {
 				if err != nil {
 					return
 				}
-				matches := getLinkCode.FindAllStringSubmatch(source.ScriptSource, -1)
-				for _, v := range matches {
-					for i, s := range v {
-						fmt.Println(i, ", ", s)
-					}
-				}
+				findHref(source.ScriptSource)
 				wg.Done()
 			}(reply)
 		}
 	}()
+
+	// Wait until we have a DOMContentEventFired event.
+	if _, err = domContent.Recv(); err != nil {
+		return err
+	}
 
 	fmt.Printf("Page loaded with frame ID: %s\n", nav.FrameID)
 
@@ -143,12 +137,14 @@ func run(timeout time.Duration, url string) error {
 	}
 
 	// Get the outer HTML for the page.
-	_, err = c.DOM.GetOuterHTML(ctx, &dom.GetOuterHTMLArgs{
+	result, err := c.DOM.GetOuterHTML(ctx, &dom.GetOuterHTMLArgs{
 		NodeID: &doc.Root.NodeID,
 	})
 	if err != nil {
 		return err
 	}
+
+	findHref(result.OuterHTML)
 
 	//fmt.Printf("HTML: %s\n", result.OuterHTML)
 
@@ -167,6 +163,19 @@ func run(timeout time.Duration, url string) error {
 
 	fmt.Printf("Saved screenshot: %s\n", screenshotName)
 	wg.Wait()
+	time.Sleep(3 * time.Second)
 
 	return nil
+}
+
+func findHref(body string) {
+	matches := getLinkCode.FindAllStringSubmatch(body, -1)
+	if len(matches) == 0 {
+		fmt.Println("Not Found")
+	}
+	for _, v := range matches {
+		for i, s := range v {
+			fmt.Println(i, ", ", s)
+		}
+	}
 }
